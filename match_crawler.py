@@ -5,7 +5,7 @@ import json
 from json_repair import repair_json
 
 
-async def get_match_stats(session, match_id: str) -> dict:
+async def get_match_stats(session, match_id: str) -> dict[str, str]:
     """
     Extracts match stats from the Mackolik website for a given match ID.
 

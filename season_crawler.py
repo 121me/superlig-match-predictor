@@ -1,14 +1,11 @@
 import asyncio
 import aiohttp
-
-from bs4 import BeautifulSoup
-import requests
 import json
 
 from week_crawler import get_week_stats
 
 
-async def get_season_stats(session, season_id: str):
+async def get_season_stats(session: aiohttp.ClientSession, season_id: str) -> tuple[list[dict[str, str]]]:
     """
     Extracts season stats from the Mackolik website for a given season ID.
 
@@ -29,7 +26,7 @@ async def get_season_stats(session, season_id: str):
     return await asyncio.gather(*tasks)
 
 
-async def main():
+async def main() -> None:
     # Example usage
     example_season_id = "59416"
 

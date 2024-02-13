@@ -6,7 +6,7 @@ from match_crawler import get_match_stats
 from smp_utils import fetch
 
 
-async def get_week_stats(session, season_id: str, week_index: str) -> list[dict]:
+async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[str, str]]:
     """
     Extracts weekly match stats from the Mackolik website for a given match ID.
 
