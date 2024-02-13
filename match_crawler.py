@@ -1,39 +1,34 @@
+import asyncio
+import aiohttp
 from bs4 import BeautifulSoup
-import requests
 import json
 from json_repair import repair_json
 
 
-def get_match_stats(match_id: str) -> dict:
+async def get_match_stats(session, match_id: str) -> dict:
     """
     Extracts match stats from the Mackolik website for a given match ID.
 
     Args:
+        session: The aiohttp session to use for the request.
         match_id: The ID of the match to retrieve stats for.
 
     Returns:
-        A list of tuples, where each tuple contains:
-            - The stat name
-            - The home team's stat value
-            - The away team's stat value
+        A dictionary containing the match stats.
     """
 
+    print(f"Getting match {match_id}")
+
     # Retrieve match details from the JSON endpoint
-    response_match_details = requests.get(
-        f"https://arsiv.mackolik.com/Match/MatchData.aspx?t=dtl&id={match_id}"
-    )
-    response_match_details.raise_for_status()  # Raise an error if request fails
-
-    good_json = repair_json(response_match_details.content.decode("utf-8"))
-
-    match_details = json.loads(good_json)
+    async with session.get(f"https://arsiv.mackolik.com/Match/MatchData.aspx?t=dtl&id={match_id}") as response:
+        response.raise_for_status()  # Raise an error if request fails
+        good_json = repair_json(await response.text())
+        match_details = json.loads(good_json)
 
     # Retrieve detailed analyses from the HTML endpoint
-    response_detailed_analyses = requests.get(
-        f"https://arsiv.mackolik.com/Match/Default.aspx?id={match_id}"
-    )
-    response_detailed_analyses.raise_for_status()  # Raise an error if request fails
-    soup = BeautifulSoup(response_detailed_analyses.content, "html.parser")
+    async with session.get(f"https://arsiv.mackolik.com/Match/Default.aspx?id={match_id}") as response:
+        response.raise_for_status()  # Raise an error if request fails
+        soup = BeautifulSoup(await response.text(), "html.parser")
 
     # Extract team names from the JSON data
     home_team_name = match_details["home"]
@@ -99,6 +94,8 @@ def get_match_stats(match_id: str) -> dict:
     # Faul, 22, 11
     # Ofsayt, 2, 1
 
+    print(f"Returning match {match_id}")
+
     return {
         "team_name_home": home_team_name,
         "team_name_away": away_team_name,
@@ -131,9 +128,14 @@ def get_match_stats(match_id: str) -> dict:
     }
 
 
-if __name__ == "__main__":
+async def main() -> None:
     # Example usage
     example_match_id = "3870958"
-    match_stats = get_match_stats(example_match_id)
-    for k, v in match_stats.items():
-        print(f"{k}: {v}")
+
+    async with aiohttp.ClientSession() as session:
+        match_stats = await get_match_stats(session, example_match_id)
+        for k, v in match_stats.items():
+            print(f"{k}: {v}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
