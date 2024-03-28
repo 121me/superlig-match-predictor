@@ -8,10 +8,10 @@ import asyncio
 async def main() -> None:
     # Example usage
     # 19480, 35232, 42124, 47148, 51830, 54794, 57526, 59416
-    example_season_ids = ["19480", "35232", "42124", "47148", "51830", "54794", "57526", "59416"]
+    mackolik_season_ids = ["59416"]
 
     async with aiohttp.ClientSession() as session:
-        tasks = [get_season_stats(session, season_id) for season_id in example_season_ids]
+        tasks = [get_season_stats(session, season_id) for season_id in mackolik_season_ids]
         seasons_stats = await asyncio.gather(*tasks)
 
         match_count = 0
@@ -47,6 +47,8 @@ async def main() -> None:
             "type_3": 0
         }
 
+        not_fav_type1_count = 0
+
         # The matches are divided into 3 categories. These were, matches with Kelly indexes greater than 1 (Type 1),
         # matches with only one Kelly index greater than 1 (Type 2),
         # and matches with no Kelly Index greater than 1 (Type 3).
@@ -74,12 +76,18 @@ async def main() -> None:
                     elif kgt1 == 0:
                         kelly_type_count["type_3"] += 1
                     else:
+                        if match['team_id_home'] not in [1, 2, 3, 4]:
+                            if match['team_id_away'] not in [1, 2, 3, 4]:
+                                print(f"Match ID: {match['match_id']}")
+                                not_fav_type1_count += 1
+                                pass
                         kelly_type_count["type_1"] += 1
 
         print(f"f99 is {f99:.5f}")
         print(f"Kelly type 1 count: {kelly_type_count['type_1']}")
         print(f"Kelly type 2 count: {kelly_type_count['type_2']}")
         print(f"Kelly type 3 count: {kelly_type_count['type_3']}")
+        print(f"Not fav type 1 count: {not_fav_type1_count}")
         print(f"Total matches: {match_count}")
 
     pass
