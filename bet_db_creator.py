@@ -8,10 +8,17 @@ import asyncio
 async def main() -> None:
     # Example usage
     # 19480, 35232, 42124, 47148, 51830, 54794, 57526, 59416
-    mackolik_season_ids = ["59416"]
+    mackolik_season_ids = [
+        63837, 61588, 59267, 57528, 54669,  # English Premier League 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+        64029, 61598, 59317, 57488, 54798,  # Bundesliga 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+        63917, 61638, 59338, 57623, 54839,  # La Liga 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+        64028, 61642, 59421, 57617, 55017,  # Serie A 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+        63977, 61596, 59318, 57305, 54705,  # Ligue 1 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+        63860,  None, 59416, 57526, 54794,  # Süper Lig 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+    ]
 
     async with aiohttp.ClientSession() as session:
-        tasks = [get_season_stats(session, season_id) for season_id in mackolik_season_ids]
+        tasks = [get_season_stats(session, season_id) for season_id in mackolik_season_ids if season_id]
         seasons_stats = await asyncio.gather(*tasks)
 
         match_count = 0

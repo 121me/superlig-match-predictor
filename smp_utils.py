@@ -1,11 +1,12 @@
 import asyncio
 import os
-from typing import Any, Coroutine
+import random
 
 import aiohttp
 import sqlite3
 
-
+"""
+old fetch function
 async def fetch(session: aiohttp.ClientSession, url: str) -> Coroutine[Any, Any, str]:
     return await _fetch(session, url, 0)
 
@@ -22,6 +23,21 @@ async def _fetch(session: aiohttp.ClientSession, url: str, retries: int) -> Coro
             else:
                 raise e
         return await response.text()
+"""
+
+async def fetch(session: aiohttp.ClientSession, url: str, retries: int = 5, timeout: int = 10) -> str:
+    for attempt in range(retries):
+        try:
+            async with session.get(url, timeout=timeout) as response:
+                response.raise_for_status()
+                return await response.text()
+        except (aiohttp.ClientResponseError, asyncio.TimeoutError):
+            if attempt < retries - 1:
+                delay = random.uniform(30, 60)  # Random delay between 30 and 60 seconds
+                await asyncio.sleep(delay)
+            else:
+                print(f"Failed to fetch {url} after {retries} retries.")
+                raise
 
 
 def avg_odds_rate(aoh: float, aoa: float, aod: float) -> float:
@@ -47,13 +63,10 @@ class MackolikDatabase:
 
     def __init__(self, dbname="static/db/mackolik.db") -> None:
         if hasattr(self, 'con'):
-            return
+            return  # Prevent re-initialization if already initialized
         self.dbname = dbname
-        try:
-            self.con = sqlite3.connect(dbname, check_same_thread=True)
-        except sqlite3.OperationalError:
-            os.makedirs("static/db", exist_ok=True)
-            self.con = sqlite3.connect(dbname, check_same_thread=True)
+        os.makedirs(os.path.dirname(dbname), exist_ok=True)
+        self.con = sqlite3.connect(dbname, check_same_thread=False)
         self.con.row_factory = dict_factory
         self.cur = self.con.cursor()
         self.setup()
@@ -127,36 +140,11 @@ class MackolikDatabase:
         self.cur.executescript(stmt)
         self.con.commit()
 
-    def add_match(self, match) -> None:
-        stmt = """
-        INSERT INTO matches (
-            match_id, team_id_home, team_id_away, team_goals_home, team_goals_away,
-            bet_1, bet_x, bet_2, bet_1x, bet_12, bet_x2, bet_under_25, bet_over_25,
-            team_name_home, team_name_away, ht_match_score_home, ht_match_score_away,
-            ft_match_score_home, ft_match_score_away, possession_rate_home, possession_rate_away,
-            total_shots_home, total_shots_away, shots_on_target_home, shots_on_target_away,
-            successful_passes_home, successful_passes_away, pass_success_rate_home, pass_success_rate_away,
-            corners_home, corners_away, crosses_home, crosses_away, fouls_home, fouls_away,
-            offsides_home, offsides_away, yellow_cards_home, yellow_cards_away, red_cards_home, red_cards_away,
-            match_index, week_index, season_id, match_result_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        args = (
-            match['match_id'], match['team_id_home'], match['team_id_away'], match['team_goals_home'],
-            match['team_goals_away'], match['bet_1'], match['bet_x'], match['bet_2'], match['bet_1x'],
-            match['bet_12'], match['bet_x2'], match['bet_under_25'], match['bet_over_25'], match['team_name_home'],
-            match['team_name_away'], match['ht_match_score_home'], match['ht_match_score_away'],
-            match['ft_match_score_home'], match['ft_match_score_away'], match['possession_rate_home'],
-            match['possession_rate_away'], match['total_shots_home'], match['total_shots_away'],
-            match['shots_on_target_home'], match['shots_on_target_away'], match['successful_passes_home'],
-            match['successful_passes_away'], match['pass_success_rate_home'], match['pass_success_rate_away'],
-            match['corners_home'], match['corners_away'], match['crosses_home'], match['crosses_away'],
-            match['fouls_home'], match['fouls_away'], match['offsides_home'], match['offsides_away'],
-            match['yellow_cards_home'], match['yellow_cards_away'], match['red_cards_home'], match['red_cards_away'],
-            match['match_index'], match['week_index'], match['season_id'], match['match_result_type']
-        )
-        self.cur.execute(stmt, args)
+    def add_match(self, match: dict) -> None:
+        columns = ', '.join(match.keys())
+        placeholders = ', '.join(['?' for _ in match.values()])
+        stmt = f"INSERT INTO matches ({columns}) VALUES ({placeholders})"
+        self.cur.execute(stmt, tuple(match.values()))
         self.con.commit()
 
     def check_team(self, team_id):

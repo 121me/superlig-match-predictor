@@ -87,15 +87,15 @@ async def get_match_stats(session, match_id: str) -> dict[str, str]:
         # Faul, 22, 11
         # Ofsayt, 2, 1
         lines = [
-            "Topla Oynama", "%50", "%50",
-            "Toplam Şut", "0", "0",
-            "İsabetli Şut", "0", "0",
-            "Başarılı Paslar", "0", "0",
-            "Pas Başarı(%)", "%0", "%0",
-            "Korner", "0", "0",
-            "Orta", "0/0", "0/0",
-            "Faul", "0", "0",
-            "Ofsayt", "0", "0",
+            "%50", "Topla Oynama", "%50",
+            "0", "Toplam Şut", "0",
+            "0", "İsabetli Şut", "0",
+            "0", "Başarılı Paslar", "0",
+            "%0", "Pas Başarı(%)", "%0",
+            "0", "Korner", "0",
+            "0/0", "Orta", "0/0",
+            "0", "Faul", "0",
+            "0", "Ofsayt", "0",
         ]
         match_result_type = 2
 
