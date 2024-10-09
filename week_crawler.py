@@ -1,11 +1,10 @@
 import asyncio
-from typing import AsyncGenerator, Any
 
 import aiohttp
 import json
 
 from match_crawler import get_match_stats
-from smp_utils import fetch, smp_db
+from smp_utils import fetch, mackolik_db
 
 
 async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[str, str]]:
@@ -21,12 +20,12 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
         A list of dictionaries containing the stats for each match in the week.
     """
 
-    if smp_db.check_week(season_id, week_index):
-        week_details = smp_db.get_week(season_id, week_index)
-        matches = smp_db.get_matches_sw(season_id, week_index)
+    if mackolik_db.check_week(season_id, week_index):
+        week_details = mackolik_db.get_week(season_id, week_index)
+        matches = mackolik_db.get_matches_sw(season_id, week_index)
 
         if len(matches) != week_details['match_count']:
-            smp_db.delete_week(season_id, week_index)
+            mackolik_db.delete_week(season_id, week_index)
             raise ValueError("Mismatch between match count in database and week details, please re-run the crawler.")
 
         return matches
@@ -37,11 +36,11 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
             session,
             f"https://arsiv.mackolik.com/Standings/Data/WeeklyStandingData.aspx?seas={season_id}&hft={week_index}"
         )
-        week_details = json.loads(response_week_details)["d"]
+        week_details = json.loads(str(response_week_details))["d"]
 
         tasks = [get_match_stats(session, match[0]) for match in week_details]
         match_stats = await asyncio.gather(*tasks)
-        
+
         match_indices = range(len(week_details))
 
         output = [
@@ -68,11 +67,23 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
         ]
 
         for match in output:
-            if not smp_db.check_match(match['match_id']):
-                smp_db.add_match(match)
+            if not mackolik_db.check_match(match['match_id']):
+                mackolik_db.add_match(match)
+            if not mackolik_db.check_team(match['team_id_home']):
+                mackolik_db.add_team({
+                    'team_id': match['team_id_home'],
+                    'team_name': match['team_name_home'],
+                    'team_power': '0'
+                })
+            if not mackolik_db.check_team(match['team_id_away']):
+                mackolik_db.add_team({
+                    'team_id': match['team_id_away'],
+                    'team_name': match['team_name_away'],
+                    'team_power': '0'
+                })
 
-        if not smp_db.check_week(week_index, season_id):
-            smp_db.add_week({
+        if not mackolik_db.check_week(week_index, season_id):
+            mackolik_db.add_week({
                 'week_index': week_index,
                 'season_id': season_id,
                 'match_count': len(output)
