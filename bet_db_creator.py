@@ -1,5 +1,5 @@
 from season_crawler import get_season_stats
-from smp_utils import avg_odds_rate, kelly
+from smp_utils import avg_odds_rate, kelly, mackolik_db
 
 import aiohttp
 import asyncio
@@ -8,6 +8,8 @@ import asyncio
 async def main() -> None:
     # Example usage
     # 19480, 35232, 42124, 47148, 51830, 54794, 57526, 59416
+
+    """
     mackolik_season_ids = [
         63837, 61588, 59267, 57528, 54669,  # English Premier League 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
         64029, 61598, 59317, 57488, 54798,  # Bundesliga 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
@@ -15,6 +17,20 @@ async def main() -> None:
         64028, 61642, 59421, 57617, 55017,  # Serie A 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
         63977, 61596, 59318, 57305, 54705,  # Ligue 1 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
         63860,  None, 59416, 57526, 54794,  # Süper Lig 2023-2024, 2022-2023, 2021-2022, 2020-2021, 2019-2020
+        67892, # UEFA Champions League 2024-2025
+        67909, # UEFA Europa League 2024-2025
+    ]
+    """
+
+    mackolik_season_ids = [
+        # EPL, Bndsl, LLiga, SeriA, Ligu1, SprLg, UCL, UEL
+        54669, 54798, 54839, 55017, 54705, 54794, # 2019-2020
+        57528, 57488, 57623, 57617, 57305, 57526, # 2020-2021
+        59267, 59317, 59338, 59421, 59318, 59416, # 2021-2022
+        61588, 61598, 61638, 61642, 61596, None, # 2022-2023
+        63837, 64029, 63917, 64028, 63977, 63860, # 2023-2024
+        67180, 67285, 67194, 67286, 67238, 67287, # 2024-2025
+        67892, 67909, # 2024-2025
     ]
 
     async with aiohttp.ClientSession() as session:

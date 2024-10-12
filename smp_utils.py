@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+from functools import lru_cache
 
 import aiohttp
 import sqlite3
@@ -158,11 +159,6 @@ class MackolikDatabase:
         self.cur.execute(stmt, args)
         self.con.commit()
 
-    def get_team(self, team_id):
-        stmt = "SELECT * FROM teams WHERE team_id = ?"
-        self.cur.execute(stmt, (team_id,))
-        return self.cur.fetchone()
-
     def check_match(self, match_id):
         stmt = "SELECT EXISTS(SELECT 1 FROM matches WHERE match_id = ?)"
         self.cur.execute(stmt, (match_id,))
@@ -176,11 +172,6 @@ class MackolikDatabase:
     def get_matches_sw(self, season_id, week_index):
         stmt = "SELECT * FROM matches WHERE season_id = ? AND week_index = ?"
         self.cur.execute(stmt, (season_id, week_index))
-        return self.cur.fetchall()
-
-    def get_matches_s(self, season_id):
-        stmt = "SELECT * FROM matches WHERE season_id = ?"
-        self.cur.execute(stmt, (season_id,))
         return self.cur.fetchall()
 
     def add_week(self, week) -> None:
@@ -200,12 +191,6 @@ class MackolikDatabase:
         args = (week_index, season_id)
         self.cur.execute(stmt, args)
         return self.cur.fetchone()
-
-    def get_weeks(self, season_id):
-        stmt = "SELECT * FROM weeks WHERE season_id = ?"
-        args = (season_id,)
-        self.cur.execute(stmt, args)
-        return self.cur.fetchall()
 
     def check_week(self, season_id, week_index):
         stmt = "SELECT EXISTS(SELECT 1 FROM weeks WHERE week_index = ? AND season_id = ?)"
@@ -242,7 +227,7 @@ class MackolikDatabase:
         order by week_index and match_index
         """
         stmt = ("SELECT match_id, match_index, week_index, match_result_type "
-                "FROM matches WHERE season_id = ? ORDER BY week_index, match_index")
+                "FROM matches WHERE season_id = ? AND match_result_type = 1 ORDER BY week_index, match_index")
         self.cur.execute(stmt, (season_id,))
         return self.cur.fetchall()
 
@@ -261,6 +246,18 @@ class MackolikDatabase:
     WHERE m.match_id = ?
     """
         self.cur.execute(stmt, (match_id,))
+        return self.cur.fetchone()
+
+    @lru_cache(maxsize=64)
+    def get_match_by_ti_wi_si(self, team_id, week_index, season_id):
+        # team_id can be both for home and away team
+        # must check both team_id_home and team_id_away
+        # select the one that exists
+        stmt = """
+        SELECT * FROM matches WHERE (team_id_home = ? OR team_id_away = ?) AND week_index = ? AND season_id = ?
+        AND match_result_type = 1
+        """
+        self.cur.execute(stmt, (team_id, team_id, week_index, season_id))
         return self.cur.fetchone()
 
     def close(self) -> None:
@@ -286,11 +283,18 @@ if __name__ == "__main__":
     db = MackolikDatabase()
     example_match = 2118664
     example_season_id = 59416
-    example_week_index = 16
+    example_week_index1 = 16
+    example_week_index2 = 17
+    example_team_id = 2
+
+    '''
     print(db.check_match(example_match))
     print(db.get_match(example_match))
-    print(db.check_week(example_season_id, example_week_index))
-    print(db.get_week(example_season_id, example_week_index))
+    print(db.check_week(example_season_id, example_week_index1))
+    print(db.get_week(example_season_id, example_week_index1))
+    '''
 
+    print(db.get_match_by_ti_wi_si(example_team_id, example_week_index1, example_season_id))
+    print(db.get_match_by_ti_wi_si(example_team_id, example_week_index2, example_season_id))
     db.close()
     print("Done running smp_utils.py")
