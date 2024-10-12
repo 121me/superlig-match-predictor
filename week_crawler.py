@@ -1,15 +1,18 @@
 import asyncio
-
 import aiohttp
 import json
+import logging
 
 from match_crawler import get_match_stats
 from smp_utils import fetch, mackolik_db
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
-async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[str, str]]:
+
+async def get_week_stats(session: aiohttp.ClientSession, season_id: str, week_index: str) -> list[dict[str, str]]:
     """
-    Extracts weekly match stats from the Mackolik website for a given match ID.
+    Extracts weekly match stats from the Mackolik website for a given week.
 
     Args:
         session: The aiohttp session to use for the request.
@@ -19,29 +22,29 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
     Returns:
         A list of dictionaries containing the stats for each match in the week.
     """
+    try:
+        # Check if week data already exists in the database
+        if mackolik_db.check_week(season_id, week_index):
+            week_details = mackolik_db.get_week(season_id, week_index)
+            matches = mackolik_db.get_matches_sw(season_id, week_index)
 
-    if mackolik_db.check_week(season_id, week_index):
-        week_details = mackolik_db.get_week(season_id, week_index)
-        matches = mackolik_db.get_matches_sw(season_id, week_index)
+            # If the match count in the database is incorrect, remove and raise an error
+            if len(matches) != week_details['match_count']:
+                mackolik_db.delete_week(season_id, week_index)
+                raise ValueError(f"Mismatch in match count for season {season_id}, week {week_index}.")
 
-        if len(matches) != week_details['match_count']:
-            mackolik_db.delete_week(season_id, week_index)
-            raise ValueError("Mismatch between match count in database and week details, please re-run the crawler.")
+            return matches
 
-        return matches
-
-    else:
         # Retrieve week details from the JSON endpoint
         response_week_details = await fetch(
             session,
             f"https://arsiv.mackolik.com/Standings/Data/WeeklyStandingData.aspx?seas={season_id}&hft={week_index}"
         )
-        week_details = json.loads(str(response_week_details))["d"]
+        week_details = json.loads(response_week_details)["d"]
 
+        # Fetch stats for each match asynchronously
         tasks = [get_match_stats(session, match[0]) for match in week_details]
         match_stats = await asyncio.gather(*tasks)
-
-        match_indices = range(len(week_details))
 
         output = [
             {
@@ -63,9 +66,10 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
                 'season_id': season_id,
                 **stats
             }
-            for match, stats, n in zip(week_details, match_stats, match_indices)
+            for n, (match, stats) in enumerate(zip(week_details, match_stats))
         ]
 
+        # Add matches and teams to the database if they don't already exist
         for match in output:
             if not mackolik_db.check_match(match['match_id']):
                 mackolik_db.add_match(match)
@@ -73,16 +77,15 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
                 mackolik_db.add_team({
                     'team_id': match['team_id_home'],
                     'team_name': match['team_name_home'],
-                    'team_power': '0'
                 })
             if not mackolik_db.check_team(match['team_id_away']):
                 mackolik_db.add_team({
                     'team_id': match['team_id_away'],
                     'team_name': match['team_name_away'],
-                    'team_power': '0'
                 })
 
-        if not mackolik_db.check_week(week_index, season_id):
+        # Add week details to the database
+        if not mackolik_db.check_week(season_id, week_index):
             mackolik_db.add_week({
                 'week_index': week_index,
                 'season_id': season_id,
@@ -91,6 +94,11 @@ async def get_week_stats(session, season_id: str, week_index: str) -> list[dict[
 
         return output
 
+    except Exception as e:
+        logging.error(f"Error retrieving stats for week {week_index} in season {season_id}: {e}")
+        logging.error("Do not worry, probably the week is not played yet. Returning empty list.")
+        return []
+
 
 async def main():
     example_season_id = "59416"
@@ -98,11 +106,17 @@ async def main():
 
     async with aiohttp.ClientSession() as session:
         week_stats = await get_week_stats(session, example_season_id, example_week_index)
-        for n, m in enumerate(week_stats):
-            print("Match:", n)
-            for k, v in m.items():
-                print(f"{k}: {v}")
-            print("-----------------------------")
+
+        if not week_stats:
+            logging.error("No week stats were retrieved.")
+            return
+
+        # Log match stats
+        for n, match in enumerate(week_stats):
+            logging.info(f"Match {n + 1}:")
+            for k, v in match.items():
+                logging.info(f"{k}: {v}")
+            logging.info("-----------------------------")
 
 
 if __name__ == "__main__":

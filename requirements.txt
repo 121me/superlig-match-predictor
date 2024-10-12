@@ -1,0 +1,6 @@
+aiohttp[speedups]==3.10.*
+beautifulsoup4==4.12.*
+json-repair==0.29.*
+numpy==2.1.*
+pandas==2.2.*
+scikit-learn==1.5.*

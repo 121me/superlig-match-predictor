@@ -1,10 +1,11 @@
 import asyncio
 import os
 import random
+from distutils.core import setup
 from functools import lru_cache
 
 import aiohttp
-import sqlite3
+import aiosqlite
 
 
 async def fetch(session: aiohttp.ClientSession, url: str, retries: int = 5, timeout: int = 10) -> str:
@@ -49,12 +50,15 @@ class MackolikDatabase:
             return  # Prevent re-initialization if already initialized
         self.dbname = dbname
         os.makedirs(os.path.dirname(dbname), exist_ok=True)
-        self.con = sqlite3.connect(dbname, check_same_thread=False)
-        self.con.row_factory = dict_factory
-        self.cur = self.con.cursor()
-        self.setup()
+        self.con = None
+        self.cur = None
 
-    def setup(self) -> None:
+    async def setup(self):
+        # Await the connection here
+        self.con = await aiosqlite.connect(self.dbname)
+        self.con.row_factory = dict_factory
+        self.cur = await self.con.cursor()
+
         stmt = """
         CREATE TABLE IF NOT EXISTS teams (
             team_id INTEGER PRIMARY KEY,
@@ -110,15 +114,14 @@ class MackolikDatabase:
             match_minute INTEGER,
             week_index INTEGER,
             season_id INTEGER,
-            prev_5_match_ids_home TEXT,
-            prev_5_match_ids_away TEXT,
             response_code INTEGER
             /*  response_code:
-                0: Not able to fetch.
+                0: Not able to fetch, not played at all or canceled.
                 1: Fetched and stats are available.
                 2: Fetched but match is not played yet.
-                3: Fetched but most stats are not available, missing, or incorrect.
-                4: Fetched but match is postponed, canceled, or abandoned.
+                3: Fetched but some unimportant stats are missing.
+                4: Fetched but stats are not available, missing, or incorrect.
+                5: Fetched but match is postponed.
             */
         );
         CREATE TABLE IF NOT EXISTS weeks (
@@ -133,133 +136,104 @@ class MackolikDatabase:
             max_week_count INTEGER
         );
         """
-        self.con.executescript(stmt)  # Await async method
-        self.con.commit()  # Await async method
+        await self.con.executescript(stmt)  # Await async method
+        await self.con.commit()  # Await async method
 
-    def add_match(self, match: dict) -> None:
+    async def add_match(self, match: dict) -> None:
         columns = ', '.join(match.keys())
         placeholders = ', '.join(['?' for _ in match.values()])
         stmt = f"INSERT INTO matches ({columns}) VALUES ({placeholders})"
-        self.cur.execute(stmt, tuple(match.values()))
-        self.con.commit()
+        await self.con.execute(stmt, tuple(match.values()))
+        await self.con.commit()
 
-    def check_team(self, team_id):
+    async def check_team(self, team_id) -> bool:
         stmt = "SELECT EXISTS(SELECT 1 FROM teams WHERE team_id = ?)"
-        self.cur.execute(stmt, (team_id,))
-        return tuple(self.cur.fetchone().items())[0][1] == 1
+        async with self.con.execute(stmt, (team_id,)) as cursor:
+            return (await cursor.fetchone())[0] == 1
 
-    def add_team(self, team) -> None:
+    async def add_team(self, team) -> None:
         stmt = "INSERT INTO teams (team_id, team_name) VALUES (?, ?)"
         args = (team['team_id'], team['team_name'])
-        self.cur.execute(stmt, args)
-        self.con.commit()
+        await self.con.execute(stmt, args)
+        await self.con.commit()
 
-    def check_match(self, match_id):
-        # if response_code is not 0, then the match is fetched
-        stmt = "SELECT EXISTS(SELECT 1 FROM matches WHERE match_id = ? and response_code != 0)"
-        self.cur.execute(stmt, (match_id,))
-        return tuple(self.cur.fetchone().items())[0][1] == 1
+    async def check_match(self, match_id) -> bool:
+        stmt = "SELECT EXISTS(SELECT 1 FROM matches WHERE match_id = ?)"
+        async with self.con.execute(stmt, (match_id,)) as cursor:
+            return (await cursor.fetchone())[0] == 1
 
-    def get_match(self, match_id):
+    async def get_match(self, match_id):
         stmt = "SELECT * FROM matches WHERE match_id = ?"
-        self.cur.execute(stmt, (match_id,))
-        return self.cur.fetchone()
+        async with self.con.execute(stmt, (match_id,)) as cursor:
+            return await cursor.fetchone()
 
-    def get_matches_sw(self, season_id, week_index):
-        stmt = "SELECT * FROM matches WHERE season_id = ? AND week_index = ?"
-        self.cur.execute(stmt, (season_id, week_index))
-        return self.cur.fetchall()
+    async def check_week(self, season_id, week_index) -> bool:
+        stmt = "SELECT EXISTS(SELECT 1 FROM weeks WHERE season_id = ? AND week_index = ?)"
+        async with self.con.execute(stmt, (season_id, week_index)) as cursor:
+            return (await cursor.fetchone())[0] == 1
 
-    def add_week(self, week) -> None:
+    async def add_week(self, week) -> None:
         stmt = "INSERT INTO weeks (season_id, week_index, match_count) VALUES (?, ?, ?)"
         args = (week['season_id'], week['week_index'], week['match_count'])
-        self.cur.execute(stmt, args)
-        self.con.commit()
+        await self.con.execute(stmt, args)
+        await self.con.commit()
 
-    def delete_week(self, season_id, week_index) -> None:
+    async def get_week(self, season_id, week_index):
+        stmt = "SELECT * FROM weeks WHERE season_id = ? AND week_index = ?"
+        async with self.con.execute(stmt, (season_id, week_index)) as cursor:
+            return await cursor.fetchone()
+
+    async def delete_week(self, season_id, week_index):
         stmt = "DELETE FROM weeks WHERE season_id = ? AND week_index = ?"
-        args = (season_id, week_index)
-        self.cur.execute(stmt, args)
-        self.con.commit()
+        await self.con.execute(stmt, (season_id, week_index))
+        await self.con.commit()
 
-    def get_week(self, season_id, week_index):
-        stmt = "SELECT * FROM weeks WHERE week_index = ? AND season_id = ?"
-        args = (week_index, season_id)
-        self.cur.execute(stmt, args)
-        return self.cur.fetchone()
+    async def get_matches_sw(self, season_id, week_index):
+        stmt = "SELECT * FROM matches WHERE season_id = ? AND week_index = ?"
+        async with self.con.execute(stmt, (season_id, week_index)) as cursor:
+            return await cursor.fetchall()
 
-    def check_week(self, season_id, week_index):
-        stmt = "SELECT EXISTS(SELECT 1 FROM weeks WHERE week_index = ? AND season_id = ?)"
-        args = (week_index, season_id)
-        self.cur.execute(stmt, args)
-        return tuple(self.cur.fetchone().items())[0][1] == 1
+    async def get_sorted_match_ids_by_season(self, season_id):
+        stmt = ("SELECT match_id, match_index, week_index, response_code "
+                "FROM matches WHERE season_id = ? AND response_code = 1 ORDER BY week_index, match_index")
+        async with self.con.execute(stmt, (season_id,)) as cursor:
+            return [row[0] for row in await cursor.fetchall()]
 
-    def add_season(self, season) -> None:
-        stmt = "INSERT INTO seasons (season_id, team_count, max_week_count) VALUES (?, ?, ?)"
-        args = (season['season_id'], season['team_count'], season['max_week_count'])
-        self.cur.execute(stmt, args)
-        self.con.commit()
+    async def get_season(self, season_id):
+        stmt = "SELECT * FROM seasons WHERE season_id = ?"
+        async with self.con.execute(stmt, (season_id,)) as cursor:
+            return await cursor.fetchone()
 
-    def check_season(self, season_id):
+    async def check_season(self, season_id) -> bool:
         stmt = "SELECT EXISTS(SELECT 1 FROM seasons WHERE season_id = ?)"
         args = (season_id,)
-        self.cur.execute(stmt, args)
-        return tuple(self.cur.fetchone().items())[0][1] == 1
+        async with self.con.execute(stmt, args) as cursor:
+            return tuple(await cursor.fetchone().items())[0][1] == 1
 
-    def get_season(self, season_id):
-        stmt = "SELECT * FROM seasons WHERE season_id = ?"
-        args = (season_id,)
-        self.cur.execute(stmt, args)
-        return self.cur.fetchone()
-
-    def get_sorted_match_ids_by_season(self, season_id):
-        """
-        Get these features:
-        match_id INTEGER PRIMARY KEY,
-        match_index INTEGER,
-        week_index INTEGER,
-        match_result_type INTEGER
-
-        order by week_index and match_index
-        """
-        stmt = ("SELECT match_id, match_index, week_index "
-                "FROM matches WHERE season_id = ? AND response_code = 1 "
-                "ORDER BY match_year, match_month, match_day, match_hour, match_minute")
-        self.cur.execute(stmt, (season_id,))
-        return self.cur.fetchall()
+    async def add_season(self, season) -> None:
+        stmt = "INSERT INTO seasons (season_id, team_count, team_ids, max_week_count) VALUES (?, ?, ?, ?)"
+        args = (season['season_id'], season['team_count'], season['team_ids'], season['max_week_count'])
+        await self.con.execute(stmt, args)
+        await self.con.commit()
 
     @lru_cache(maxsize=128)
-    def get_match_by_ti_wi_si(self, team_id, week_index, season_id):
-        # team_id can be both for home and away team
-        # must check both team_id_home and team_id_away
-        # select the one that exists
+    async def get_match_by_ti_wi_si(self, team_id, week_index, season_id):
         stmt = """
         SELECT * FROM matches WHERE (team_id_home = ? OR team_id_away = ?) AND week_index = ? AND season_id = ?
         AND response_code = 1
         """
-        self.cur.execute(stmt, (team_id, team_id, week_index, season_id))
-        return self.cur.fetchone()
+        async with self.con.execute(stmt, (team_id, team_id, week_index, season_id)) as cursor:
+            return await cursor.fetchone()
 
-    def close(self) -> None:
-        self.con.close()
-
-    def __del__(self) -> None:
-        self.close()
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.close()
-
-    def __enter__(self):
-        return self
-
-    def __aexit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+    async def close(self) -> None:
+        await self.con.close()
 
 mackolik_db = MackolikDatabase()
 
 # Usage example with asyncio
 async def main():
     async with aiohttp.ClientSession() as session:
+        await mackolik_db.setup()
         example_match = 2118664
         example_season_id = 59416
         example_week_index1 = 16
@@ -268,9 +242,9 @@ async def main():
         print(mackolik_db.con)
 
         # Fetch a match by team_id, week_index, and season_id
-        match = mackolik_db.get_match_by_ti_wi_si(example_team_id, example_week_index1, example_season_id)
+        match = await mackolik_db.get_match_by_ti_wi_si(example_team_id, example_week_index1, example_season_id)
         print(match)
-        mackolik_db.close()
+        await mackolik_db.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
