@@ -48,4 +48,7 @@ pip install -r requirements.txt
 
 ## How to use
 ### bet_trainer.py
-Run the `bet_trainer.py` file to train the model. You can get 'sId's (season_ids) from urls like [this](https://arsiv.mackolik.com/Standings/Default.aspx?sId=67180). If you cannot see the season_id in the url, just change the season and change it back to the season you want to retrieve it.
+Make sure you are in the 'better-trainer' branch. Run the `next_match_predictor.py` file to train the model. You can get 'sId's (season_ids) from urls like [this](https://arsiv.mackolik.com/Standings/Default.aspx?sId=67180). If you cannot see the season_id in the url, just change the season and change it back to the season you want to retrieve it.
+
+## How to fix errors
+Run the `fix_database.py` file. Then, run the `next_match_predictor.py` file again.

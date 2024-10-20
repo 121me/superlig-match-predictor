@@ -1,13 +1,11 @@
 import asyncio
-from functools import lru_cache
 
 import aiohttp
 from bs4 import BeautifulSoup
 import json
 from json_repair import repair_json
-from pandas.io.formats.format import return_docstring
 
-from smp_utils import fetch
+from smp_utils import fetch, mackolik_db
 from datetime import datetime
 
 current_datetime = datetime.now()
@@ -76,178 +74,66 @@ def format_match_date(soup: BeautifulSoup) -> list[str]:
     return match_date + match_time
 
 
-async def get_match_stats(session, match_id: str) -> dict[str, str]:
-    """Extracts some match stats from the Mackolik website for a given match ID."""
-    print(f"Getting match {match_id}")
-
-    response_code = 1
-
-    try:
-        match_details = await fetch_match_json(session, match_id)
-        soup = await fetch_match_html(session, match_id)
-    except Exception as e:
-        print(f"Error fetching match {match_id}: {e}")
-        return {
-            "team_name_home": "",
-            "team_name_away": "",
-            "ht_match_score_home": 0,
-            "ht_match_score_away": 0,
-            "ft_match_score_home": 0,
-            "ft_match_score_away": 0,
-            "possession_rate_home": 0,
-            "possession_rate_away": 0,
-            "total_shots_home": 0,
-            "total_shots_away": 0,
-            "shots_on_target_home": 0,
-            "shots_on_target_away": 0,
-            "successful_passes_home": 0,
-            "successful_passes_away": 0,
-            "pass_success_rate_home": 0,
-            "pass_success_rate_away": 0,
-            "corners_home": 0,
-            "corners_away": 0,
-            "crosses_home": 0,
-            "crosses_away": 0,
-            "fouls_home": 0,
-            "fouls_away": 0,
-            "offsides_home": 0,
-            "offsides_away": 0,
-            "response_code": 0,
-            "yellow_cards_home": 0,
-            "yellow_cards_away": 0,
-            "red_cards_home": 0,
-            "red_cards_away": 0,
-            "match_year": 0,
-            "match_month": 0,
-            "match_day": 0,
-            "match_hour": 0,
-            "match_minute": 0,
-            "prev_5_match_ids_home": "",
-            "prev_5_match_ids_away": "",
-        }
-
-    match_date = format_match_date(soup)
-
-    home_team_name = match_details["home"]
-    away_team_name = match_details["away"]
-
-    is_future = (current_datetime <
-                 datetime(*map(int, [match_date[2], match_date[1], match_date[0], match_date[3], match_date[4]])))
-
-    if is_future:
-        return {
-            "team_name_home": home_team_name,
-            "team_name_away": away_team_name,
-            "ht_match_score_home": 0,
-            "ht_match_score_away": 0,
-            "ft_match_score_home": 0,
-            "ft_match_score_away": 0,
-            "possession_rate_home": 0,
-            "possession_rate_away": 0,
-            "total_shots_home": 0,
-            "total_shots_away": 0,
-            "shots_on_target_home": 0,
-            "shots_on_target_away": 0,
-            "successful_passes_home": 0,
-            "successful_passes_away": 0,
-            "pass_success_rate_home": 0,
-            "pass_success_rate_away": 0,
-            "corners_home": 0,
-            "corners_away": 0,
-            "crosses_home": 0,
-            "crosses_away": 0,
-            "fouls_home": 0,
-            "fouls_away": 0,
-            "offsides_home": 0,
-            "offsides_away": 0,
-            "response_code": 2,
-            "yellow_cards_home": 0,
-            "yellow_cards_away": 0,
-            "red_cards_home": 0,
-            "red_cards_away": 0,
-            "match_year": match_date[2],
-            "match_month": match_date[1],
-            "match_day": match_date[0],
-            "match_hour": match_date[3],
-            "match_minute": match_date[4],
-            "prev_5_match_ids_home": "",
-            "prev_5_match_ids_away": "",
-        }
-
-    ht_match_score = match_details["d"]["ht"]
-    ft_match_score = match_details["d"]["s"]
-
-    yellow_cards, red_cards = parse_match_events(match_details["e"])
-
-    # Extract stats from HTML content or use default values in case of error
-    try:
-        match_analysis = soup.select_one("#dvOPTAStats > div:nth-child(2)").text
-        lines = [line.strip() for line in match_analysis.splitlines() if line.strip()]
-    except AttributeError:
-        lines = ["%50", "Topla Oynama", "%50", "0", "Toplam Şut", "0", "0", "İsabetli Şut", "0", "0", "Başarılı Paslar", "0", "%0", "Pas Başarı(%)", "%0", "0", "Korner", "0", "0/0", "Orta", "0/0", "0", "Faul", "0", "0", "Ofsayt", "0"]
-        response_code = 3
-
-    if len(lines) % 3 != 0:
-        raise ValueError("Unexpected number of lines in match stats, bug in parsing")
-
-    stats = extract_match_stats(lines, home_team_name, away_team_name, ht_match_score, ft_match_score)
-    if ft_match_score == 'v':
-        stats[2] = ("Full-time Score", "0", "0")
-        response_code = 4
-
-    print(f"Returning match {match_id}")
-
-    return {
-        "team_name_home": home_team_name,
-        "team_name_away": away_team_name,
-        "ht_match_score_home": stats[1][1],
-        "ht_match_score_away": stats[1][2],
-        "ft_match_score_home": stats[2][1],
-        "ft_match_score_away": stats[2][2],
-        "possession_rate_home": stats[3][1][1:],  # remove '%' sign
-        "possession_rate_away": stats[3][2][1:],  # remove '%' sign
-        "total_shots_home": stats[4][1],
-        "total_shots_away": stats[4][2],
-        "shots_on_target_home": stats[5][1],
-        "shots_on_target_away": stats[5][2],
-        "successful_passes_home": stats[6][1],
-        "successful_passes_away": stats[6][2],
-        "pass_success_rate_home": float(stats[7][1][1:]) / 100,  # convert percentage to float
-        "pass_success_rate_away": float(stats[7][2][1:]) / 100,  # convert percentage to float
-        "corners_home": stats[8][1],
-        "corners_away": stats[8][2],
-        "crosses_home": stats[9][1].split("/")[0],
-        "crosses_away": stats[9][2].split("/")[0],
-        "fouls_home": stats[10][1],
-        "fouls_away": stats[10][2],
-        "offsides_home": stats[11][1],
-        "offsides_away": stats[11][2],
-        "response_code": response_code,
-        "yellow_cards_home": yellow_cards[1],
-        "yellow_cards_away": yellow_cards[2],
-        "red_cards_home": red_cards[1],
-        "red_cards_away": red_cards[2],
-        "match_year": match_date[2],
-        "match_month": match_date[1],
-        "match_day": match_date[0],
-        "match_hour": match_date[3],
-        "match_minute": match_date[4],
-        "prev_5_match_ids_home": "",
-        "prev_5_match_ids_away": "",
-    }
-
 def extract_bets(bet_details, bet_type):
     bet_types = [bt for bt in bet_details['Event']['Markets']]
     for bt in bet_types:
         if bet_type in bt['MarketType'].values():
             return [b['Odd'] for b in bt['Outcomes']]
-    return [1, 1, 1]
+    return [1, 1]
 
 
-@lru_cache
-async def get_match_stats_v2(session, match_id: str) -> dict[str, str]:
+async def get_match_stats(session, match_id: str) -> dict[str, str]:
     """Extracts all match stats from the Mackolik website for a given match ID."""
     print(f"Getting match {match_id}")
+
+    if not match_id:
+        return {
+            'match_id': match_id,
+            'team_id_home': 0,
+            'team_id_away': 0,
+            'bet_under_25': 1,
+            'bet_over_25': 1,
+            'team_name_home': "Unknown",
+            'team_name_away': "Unknown",
+            'ht_match_score_home': 0,
+            'ht_match_score_away': 0,
+            'ft_match_score_home': 0,
+            'ft_match_score_away': 0,
+            'possession_rate_home': 0,
+            'possession_rate_away': 0,
+            'total_shots_home': 0,
+            'total_shots_away': 0,
+            'shots_on_target_home': 0,
+            'shots_on_target_away': 0,
+            'successful_passes_home': 0,
+            'successful_passes_away': 0,
+            'pass_success_rate_home': 0,
+            'pass_success_rate_away': 0,
+            'corners_home': 0,
+            'corners_away': 0,
+            'crosses_home': 0,
+            'crosses_away': 0,
+            'fouls_home': 0,
+            'fouls_away': 0,
+            'offsides_home': 0,
+            'offsides_away': 0,
+            'yellow_cards_home': 0,
+            'yellow_cards_away': 0,
+            'red_cards_home': 0,
+            'red_cards_away': 0,
+            'match_year': 0,
+            'match_month': 0,
+            'match_day': 0,
+            'match_hour': 0,
+            'match_minute': 0,
+            'prev_5_match_ids_home': "0l0l0l0", # l is the separator, like in the 'lake' word
+            'prev_5_match_ids_away': "0l0l0l0", # l is the separator, like in the 'lake' word
+            'response_code': 0,
+        }
+
+    if mackolik_db.check_match(match_id):
+        print(f"Match {match_id} already exists in the database")
+        return mackolik_db.get_match(match_id)
 
     response_code = 1
 
@@ -261,79 +147,60 @@ async def get_match_stats_v2(session, match_id: str) -> dict[str, str]:
             'match_id': match_id,
             'team_id_home': 0,
             'team_id_away': 0,
-            "team_name_home": "",
-            "team_name_away": "",
-            'team_goals_home': 0,
-            'team_goals_away': 0,
-            "ht_match_score_home": 0,
-            "ht_match_score_away": 0,
-            "ft_match_score_home": 0,
-            "ft_match_score_away": 0,
-            "possession_rate_home": 0,
-            "possession_rate_away": 0,
-            "total_shots_home": 0,
-            "total_shots_away": 0,
-            "shots_on_target_home": 0,
-            "shots_on_target_away": 0,
-            "successful_passes_home": 0,
-            "successful_passes_away": 0,
-            "pass_success_rate_home": 0,
-            "pass_success_rate_away": 0,
-            "corners_home": 0,
-            "corners_away": 0,
-            "crosses_home": 0,
-            "crosses_away": 0,
-            "fouls_home": 0,
-            "fouls_away": 0,
-            "offsides_home": 0,
-            "offsides_away": 0,
-            "response_code": 0,
-            "yellow_cards_home": 0,
-            "yellow_cards_away": 0,
-            "red_cards_home": 0,
-            "red_cards_away": 0,
-            "match_year": 0,
-            "match_month": 0,
-            "match_day": 0,
-            "match_hour": 0,
-            "match_minute": 0,
-            'bet_1': 0,
-            'bet_x': 0,
-            'bet_2': 0,
-            'bet_1x': 0,
-            'bet_12': 0,
-            'bet_x2': 0,
-            'bet_under_25': 0,
-            'bet_over_25': 0,
-            'match_index': 0,
-            'week_index': 0,
-            'season_id': 0,
-            'prev_5_match_ids_home': "",
-            'prev_5_match_ids_away': "",
+            'bet_under_25': 1,
+            'bet_over_25': 1,
+            'team_name_home': "Unknown",
+            'team_name_away': "Unknown",
+            'ht_match_score_home': 0,
+            'ht_match_score_away': 0,
+            'ft_match_score_home': 0,
+            'ft_match_score_away': 0,
+            'possession_rate_home': 0,
+            'possession_rate_away': 0,
+            'total_shots_home': 0,
+            'total_shots_away': 0,
+            'shots_on_target_home': 0,
+            'shots_on_target_away': 0,
+            'successful_passes_home': 0,
+            'successful_passes_away': 0,
+            'pass_success_rate_home': 0,
+            'pass_success_rate_away': 0,
+            'corners_home': 0,
+            'corners_away': 0,
+            'crosses_home': 0,
+            'crosses_away': 0,
+            'fouls_home': 0,
+            'fouls_away': 0,
+            'offsides_home': 0,
+            'offsides_away': 0,
+            'yellow_cards_home': 0,
+            'yellow_cards_away': 0,
+            'red_cards_home': 0,
+            'red_cards_away': 0,
+            'match_year': 0,
+            'match_month': 0,
+            'match_day': 0,
+            'match_hour': 0,
+            'match_minute': 0,
+            'prev_5_match_ids_home': "0l0l0l0", # l is the separator, like in the 'lake' word
+            'prev_5_match_ids_away': "0l0l0l0", # l is the separator, like in the 'lake' word
+            'response_code': 0,
         }
 
     match_date = format_match_date(soup)
 
-    home_team_name = match_details["home"]
-    away_team_name = match_details["away"]
+    try:
+        home_team_name = match_details["home"]
+        away_team_name = match_details["away"]
+    except Exception as e:
+        print(f"Error fetching team names for match {match_id}: {e}")
+        pass
 
     is_future = (current_datetime <
                  datetime(*map(int, [match_date[2], match_date[1], match_date[0], match_date[3], match_date[4]]))
                 )
 
-    # Extract different bet types
-    try:
-        bet_1, bet_x, bet_2 = extract_bets(bet_details, "Maç Sonucu")
-    except (ValueError, TypeError):
-        bet_1, bet_x, bet_2 = 1, 1, 1
-        response_code = 3
-
-    try:
-        bet_1x, bet_12, bet_x2 = extract_bets(bet_details, "Çifte Şans")
-    except (ValueError, TypeError):
-        bet_1x, bet_12, bet_x2 = 1, 1, 1
-        response_code = 3
-
+    # Extract bet types or use default values in case of error
     try:
         bet_under_25, bet_over_25 = extract_bets(bet_details, "2,5 Alt/Üst")
     except (ValueError, TypeError):
@@ -343,41 +210,8 @@ async def get_match_stats_v2(session, match_id: str) -> dict[str, str]:
     team_id_home = int(soup.find("a", {"class": "left-block-team-name"})["href"].split("/")[-2])
     team_id_away = int(soup.find("a", {"class": "r-left-block-team-name"})["href"].split("/")[-2])
 
-    # Find this element to extract season id
-    # <div class="match-info-wrapper-season">
-    #     <a href="//arsiv.mackolik.com/Puan-Durumu/s=59416/Turkiye-Spor-Toto-Super-Lig" target="_blank" style="font-size: 11px">
-    #         <img src="//im.mackolik.com/img/groups/1.gif" style="vertical-align: middle">
-    #         <b>Türkiye Spor Toto Süper Lig Ahmet Çalık Sezonu 2021/2022</b></a>
-    # </div>
-    # try to get 59416 from the href
-
     season_id = int(soup.find("div", {"class": "match-info-wrapper-season"}).find("a")["href"].split("=")[-1].split("/")[0])
 
-    # Find prev 5 matches in soup
-    # <div class="last-games-temp">
-    #                                 <div class="last-games-text">Son 5 Maç :</div>
-    #
-    #     <div class="last-games" title="Samsunspor 0-1 Konyaspor (14.09.2024)" onclick="popMatch(4125409)">
-    #         <img src="//im.mackolik.com/img5/M.png">
-    #     </div>
-    #
-    #     <div class="last-games" title="Samsunspor 2-0 Başakşehir FK (18.09.2024)" onclick="popMatch(4124929)">
-    #         <img src="//im.mackolik.com/img5/G.png">
-    #     </div>
-    #
-    #     <div class="last-games" title="Çaykur Rizespor 0-1 Samsunspor (22.09.2024)" onclick="popMatch(4125413)">
-    #         <img src="//im.mackolik.com/img5/G.png">
-    #     </div>
-    #
-    #     <div class="last-games" title="Samsunspor 4-3 Göztepe (28.09.2024)" onclick="popMatch(4125472)">
-    #         <img src="//im.mackolik.com/img5/G.png">
-    #     </div>
-    #
-    #     <div class="last-games" title="Adana Demirspor 1-3 Samsunspor (06.10.2024)" onclick="popMatch(4125474)">
-    #         <img src="//im.mackolik.com/img5/G.png">
-    #     </div>
-    #
-    #                             </div>
     prev_5_match_ids_home = [e['onclick'].split("(")[1].split(")")[0] for e in soup.find("div", {"class": "last-games-temp"}).find_all("div", {"class": "last-games"})]
     prev_5_match_ids_away = [e['onclick'].split("(")[1].split(")")[0] for e in soup.find("div", {"class": "r-last-games-temp"}).find_all("div", {"class": "last-games"})]
 
@@ -386,55 +220,44 @@ async def get_match_stats_v2(session, match_id: str) -> dict[str, str]:
             'match_id': match_id,
             'team_id_home': team_id_home,
             'team_id_away': team_id_away,
-            "team_name_home": home_team_name,
-            "team_name_away": away_team_name,
-            'team_goals_home': 0,
-            'team_goals_away': 0,
-            "ht_match_score_home": 0,
-            "ht_match_score_away": 0,
-            "ft_match_score_home": 0,
-            "ft_match_score_away": 0,
-            "possession_rate_home": 0,
-            "possession_rate_away": 0,
-            "total_shots_home": 0,
-            "total_shots_away": 0,
-            "shots_on_target_home": 0,
-            "shots_on_target_away": 0,
-            "successful_passes_home": 0,
-            "successful_passes_away": 0,
-            "pass_success_rate_home": 0,
-            "pass_success_rate_away": 0,
-            "corners_home": 0,
-            "corners_away": 0,
-            "crosses_home": 0,
-            "crosses_away": 0,
-            "fouls_home": 0,
-            "fouls_away": 0,
-            "offsides_home": 0,
-            "offsides_away": 0,
-            "response_code": 2,
-            "yellow_cards_home": 0,
-            "yellow_cards_away": 0,
-            "red_cards_home": 0,
-            "red_cards_away": 0,
-            "match_year": match_date[2],
-            "match_month": match_date[1],
-            "match_day": match_date[0],
-            "match_hour": match_date[3],
-            "match_minute": match_date[4],
-            'bet_1': bet_1,
-            'bet_x': bet_x,
-            'bet_2': bet_2,
-            'bet_1x': bet_1x,
-            'bet_12': bet_12,
-            'bet_x2': bet_x2,
             'bet_under_25': bet_under_25,
             'bet_over_25': bet_over_25,
-            'match_index': 0,
-            'week_index': 0,
-            'season_id': season_id,
-            'prev_5_match_ids_home': "l".join(prev_5_match_ids_home),
-            'prev_5_match_ids_away': "l".join(prev_5_match_ids_away),
+            'team_name_home': home_team_name,
+            'team_name_away': away_team_name,
+            'ht_match_score_home': 0,
+            'ht_match_score_away': 0,
+            'ft_match_score_home': 0,
+            'ft_match_score_away': 0,
+            'possession_rate_home': 0,
+            'possession_rate_away': 0,
+            'total_shots_home': 0,
+            'total_shots_away': 0,
+            'shots_on_target_home': 0,
+            'shots_on_target_away': 0,
+            'successful_passes_home': 0,
+            'successful_passes_away': 0,
+            'pass_success_rate_home': 0,
+            'pass_success_rate_away': 0,
+            'corners_home': 0,
+            'corners_away': 0,
+            'crosses_home': 0,
+            'crosses_away': 0,
+            'fouls_home': 0,
+            'fouls_away': 0,
+            'offsides_home': 0,
+            'offsides_away': 0,
+            'yellow_cards_home': 0,
+            'yellow_cards_away': 0,
+            'red_cards_home': 0,
+            'red_cards_away': 0,
+            'match_year': match_date[2],
+            'match_month': match_date[1],
+            'match_day': match_date[0],
+            'match_hour': match_date[3],
+            'match_minute': match_date[4],
+            'prev_5_match_ids_home': 'l'.join(prev_5_match_ids_home),
+            'prev_5_match_ids_away': 'l'.join(prev_5_match_ids_away),
+            'response_code': 2,
         }
 
     ht_match_score = match_details["d"]["ht"]
@@ -454,8 +277,13 @@ async def get_match_stats_v2(session, match_id: str) -> dict[str, str]:
         raise ValueError("Unexpected number of lines in match stats, bug in parsing")
 
     stats = extract_match_stats(lines, home_team_name, away_team_name, ht_match_score, ft_match_score)
-    if ft_match_score == 'v':
+    # If the ft_match_score is ['v', 'P - P'] or empty string, set it to 0 - 0
+    if not ft_match_score or ft_match_score in ['v', 'P - P']:
         stats[2] = ("Full-time Score", "0", "0")
+        response_code = 4
+
+    if not ht_match_score or ht_match_score in ['v', 'P - P']:
+        stats[1] = ("Half-time Score", "0", "0")
         response_code = 4
 
     print(f"Returning match {match_id}")
@@ -464,69 +292,57 @@ async def get_match_stats_v2(session, match_id: str) -> dict[str, str]:
         'match_id': match_id,
         'team_id_home': team_id_home,
         'team_id_away': team_id_away,
-        "team_name_home": home_team_name,
-        "team_name_away": away_team_name,
-        'team_goals_home': int(ft_match_score.split(" - ")[0]),
-        'team_goals_away': int(ft_match_score.split(" - ")[1]),
-        "ht_match_score_home": stats[1][1],
-        "ht_match_score_away": stats[1][2],
-        "ft_match_score_home": stats[2][1],
-        "ft_match_score_away": stats[2][2],
-        "possession_rate_home": stats[3][1][1:],  # remove '%' sign
-        "possession_rate_away": stats[3][2][1:],  # remove '%' sign
-        "total_shots_home": stats[4][1],
-        "total_shots_away": stats[4][2],
-        "shots_on_target_home": stats[5][1],
-        "shots_on_target_away": stats[5][2],
-        "successful_passes_home": stats[6][1],
-        "successful_passes_away": stats[6][2],
-        "pass_success_rate_home": float(stats[7][1][1:]) / 100,  # convert percentage to float
-        "pass_success_rate_away": float(stats[7][2][1:]) / 100,  # convert percentage to float
-        "corners_home": stats[8][1],
-        "corners_away": stats[8][2],
-        "crosses_home": stats[9][1].split("/")[0],
-        "crosses_away": stats[9][2].split("/")[0],
-        "fouls_home": stats[10][1],
-        "fouls_away": stats[10][2],
-        "offsides_home": stats[11][1],
-        "offsides_away": stats[11][2],
-        "response_code": response_code,
-        "yellow_cards_home": yellow_cards[1],
-        "yellow_cards_away": yellow_cards[2],
-        "red_cards_home": red_cards[1],
-        "red_cards_away": red_cards[2],
-        "match_year": match_date[2],
-        "match_month": match_date[1],
-        "match_day": match_date[0],
-        "match_hour": match_date[3],
-        "match_minute": match_date[4],
-        'bet_1': bet_1,
-        'bet_x': bet_x,
-        'bet_2': bet_2,
-        'bet_1x': bet_1x,
-        'bet_12': bet_12,
-        'bet_x2': bet_x2,
         'bet_under_25': bet_under_25,
         'bet_over_25': bet_over_25,
-        'match_index': 0,
-        'week_index': 0,
-        'season_id': season_id,
-        'prev_5_match_ids_home': "l".join(prev_5_match_ids_home),
-        'prev_5_match_ids_away': "l".join(prev_5_match_ids_away),
+        'team_name_home': home_team_name,
+        'team_name_away': away_team_name,
+        'ht_match_score_home': stats[1][1],
+        'ht_match_score_away': stats[1][2],
+        'ft_match_score_home': stats[2][1],
+        'ft_match_score_away': stats[2][2],
+        'possession_rate_home': stats[3][1][1:],  # remove '%' sign
+        'possession_rate_away': stats[3][2][1:],  # remove '%' sign
+        'total_shots_home': stats[4][1],
+        'total_shots_away': stats[4][2],
+        'shots_on_target_home': stats[5][1],
+        'shots_on_target_away': stats[5][2],
+        'successful_passes_home': stats[6][1],
+        'successful_passes_away': stats[6][2],
+        'pass_success_rate_home': float(stats[7][1][1:]) / 100,  # convert percentage to float
+        'pass_success_rate_away': float(stats[7][2][1:]) / 100,  # convert percentage to float
+        'corners_home': stats[8][1],
+        'corners_away': stats[8][2],
+        'crosses_home': stats[9][1].split("/")[0],
+        'crosses_away': stats[9][2].split("/")[0],
+        'fouls_home': stats[10][1],
+        'fouls_away': stats[10][2],
+        'offsides_home': stats[11][1],
+        'offsides_away': stats[11][2],
+        'yellow_cards_home': yellow_cards[1],
+        'yellow_cards_away': yellow_cards[2],
+        'red_cards_home': red_cards[1],
+        'red_cards_away': red_cards[2],
+        'match_year': match_date[2],
+        'match_month': match_date[1],
+        'match_day': match_date[0],
+        'match_hour': match_date[3],
+        'match_minute': match_date[4],
+        'prev_5_match_ids_home': 'l'.join(prev_5_match_ids_home),
+        'prev_5_match_ids_away': 'l'.join(prev_5_match_ids_away),
+        'response_code': response_code,
     }
+
+    if not mackolik_db.check_match(match_id):
+        mackolik_db.add_match(output)
 
     return output
 
 
 async def main() -> None:
-    example_match_id = "3562667"
+    example_match_id = '4109542'
     async with aiohttp.ClientSession() as session:
-        match_stats = await get_match_stats(session, example_match_id)
-        print("match_stats:")
-        for k, v in match_stats.items():
-            print(f"{k}: {v}")
 
-        match_stats_v2 = await get_match_stats_v2(session, example_match_id)
+        match_stats_v2 = await get_match_stats(session, example_match_id)
         print("match_stats_v2:")
         for k, v in match_stats_v2.items():
             print(f"{k}: {v}")

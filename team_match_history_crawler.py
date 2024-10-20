@@ -1,8 +1,6 @@
 import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
-import json
-from json_repair import repair_json
 from datetime import datetime
 
 from smp_utils import fetch
@@ -10,8 +8,9 @@ from smp_utils import fetch
 # Today's date day month year
 today = datetime.now()
 
-async def get_pvn_matches_by_team(session, team_id, until_date: str = '1.01.2024'):
+async def get_previous_matches_by_team(session, team_id, until_date: str = '1.01.2024'):
     """Get the previous matches of a team. Last match in the list is the most recent match."""
+    print(f"Getting previous matches for team {team_id}")
 
     base_url = f"https://arsiv.mackolik.com/AjaxHandlers/TeamHandler.aspx?command=teamtabs&id={team_id}&type=1&viewType=1"
 
@@ -31,6 +30,13 @@ async def get_pvn_matches_by_team(session, team_id, until_date: str = '1.01.2024
         # if the date is older than the until_date, continue
         if datetime.strptime(date, "%d.%m.%Y") < datetime.strptime(until_date, "%d.%m.%Y"):
             continue
+
+        # Do not include today's matches
+        # Subtract 2 days from today's date
+        one_day_ago = today.replace(day=today.day - 1)
+        if datetime.strptime(date, "%d.%m.%Y") > one_day_ago:
+            break
+
         try:
             # Get the home team id
             home_team_id = cells[5].find("a")["href"].split("/")[4]
@@ -58,23 +64,19 @@ async def get_pvn_matches_by_team(session, team_id, until_date: str = '1.01.2024
 
         # Append the match details to the list
         match_details.append({
-            "date": date,
+            "match_date": date,
             "match_id": match_id,
             "home_team_id": home_team_id,
             "away_team_id": away_team_id,
-            "main_team_id": team_id,
-            "opponent_team_id": op_team,
         })
 
-        # Stop if the score is v, which means the match is not played yet
-        if score == "v":
-            break
-
+    print(f"Returning previous matches for team {team_id}")
     return match_details
+
 
 async def main():
     async with aiohttp.ClientSession() as session:
-        pvn = await get_pvn_matches_by_team(session, 2, "3.04.2024")
+        pvn = await get_previous_matches_by_team(session, 2, '22.07.2024')
 
     for match in pvn:
         print(match)
