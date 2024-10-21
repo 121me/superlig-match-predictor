@@ -32,7 +32,7 @@ async def get_previous_matches_by_team(session, team_id, until_date: str = '1.01
             continue
 
         # Do not include today's matches
-        # Subtract 2 days from today's date
+        # Subtract a day from today's date
         one_day_ago = today.replace(day=today.day - 1)
         if datetime.strptime(date, "%d.%m.%Y") > one_day_ago:
             break

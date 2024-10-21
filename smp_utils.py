@@ -7,19 +7,21 @@ import sqlite3
 
 
 async def fetch(session: aiohttp.ClientSession, url: str, retries: int = 5, timeout: int = 10) -> str:
-    for attempt in range(retries):
+    base_delay = 5  # Base delay for backoff
+    for attempt in range(1, retries + 1):
         try:
             async with session.get(url, timeout=timeout) as response:
-                response.raise_for_status()
+                response.raise_for_status()  # Raise if non-2xx status
                 return await response.text()
-        except (aiohttp.ClientResponseError, asyncio.TimeoutError) as e:
-            if attempt < retries - 1:
-                delay = random.uniform(0, 6*(attempt+1))
-                print(f"Retrying {url} in {delay:.2f} seconds after error: {e}")
+        except (aiohttp.ClientResponseError, asyncio.TimeoutError, aiohttp.ClientConnectorError) as e:
+            if attempt < retries:
+                # Exponential backoff with jitter
+                delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                print(f"Attempt {attempt}/{retries} failed for {url} with error: {e}. Retrying in {delay:.2f} seconds...")
                 await asyncio.sleep(delay)
             else:
                 print(f"Failed to fetch {url} after {retries} retries. Error: {e}")
-                raise
+                raise e
 
 
 def dict_factory(cursor, row):

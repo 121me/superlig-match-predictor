@@ -49,7 +49,7 @@ other_keys = ["match_id", "bet_under_25", "bet_over_25",]
 
 SEASON_IDS = [
     #'67180', # Premier League
-    '67285', # Bundesliga
+    #'67285', # Bundesliga
     #'67194', # La Liga
     #'67286', # Serie A
     #'67238', # Ligue 1
@@ -58,6 +58,9 @@ SEASON_IDS = [
     #'67345', # Primeira Liga
     #'67204', # Eredivisie
     #'67287', # Super Lig
+    '67892', # UEFA Championship League
+    #'67909', # UEFA Europa League
+    #'67940', # UEFA Conference League
 ]
 
 UNTIL_DATE = '24.07.2023'
@@ -87,10 +90,13 @@ async def get_next_match_ids_by_league(session: aiohttp.ClientSession, season_id
 
     return (i[0] for i in season_details['f'])
 
-async def calculate_averages(session: aiohttp.ClientSession, match_id: str) -> List[float] | None:
+async def calculate_averages(session: aiohttp.ClientSession, match_id: str, is_future: bool) -> List[float] | None:
     full_match_stats = await get_match_stats(session, match_id)
 
-    if full_match_stats['response_code'] == 3:  # the bet stats are not available
+    if is_future:
+        pass
+    elif full_match_stats['response_code'] == 3:  # the bet stats are not available
+        print(f"Skipping match {match_id} due to missing bet stats")
         return None
 
     home_team_id = full_match_stats['team_id_home']
@@ -106,33 +112,46 @@ async def calculate_averages(session: aiohttp.ClientSession, match_id: str) -> L
     prev_5_matches_away = await asyncio.gather(*tasks_prev_5_matches_away)
 
     # Remove the match from the list if the response code is 0, 2, 4
-    prev_5_matches_home = [m for m in prev_5_matches_home if int(m['response_code']) in [1]]
-    prev_5_matches_away = [m for m in prev_5_matches_away if int(m['response_code']) in [1]]
+    prev_5_matches_home = [m for m in prev_5_matches_home if int(m['response_code']) in ([1, 3] if is_future else [1,])]
+    prev_5_matches_away = [m for m in prev_5_matches_away if int(m['response_code']) in ([1, 3] if is_future else [1,])]
 
     # If there are 2 or fewer matches, skip this match
     if len(prev_5_matches_home) <= 1 or len(prev_5_matches_away) <= 1:
+        print(f"Skipping match {match_id} due to insufficient previous matches")
         return None
 
     # Swap the home and away team data and stats
     for m in prev_5_matches_home:
         if str(m['team_id_away']) == home_team_id:
             for key in keys_to_swap_raw:
-                m[key + "_home"], m[key + "_away"] = m[key + "_away"], m[key + "_home"]
+                try:
+                    m[key + "_home"], m[key + "_away"] = m[key + "_away"], m[key + "_home"]
+                except KeyError:
+                    pass
 
     for m in prev_5_matches_away:
         if str(m['team_id_home']) == away_team_id:
             for key in keys_to_swap_raw:
-                m[key + "_home"], m[key + "_away"] = m[key + "_away"], m[key + "_home"]
+                try:
+                    m[key + "_home"], m[key + "_away"] = m[key + "_away"], m[key + "_home"]
+                except KeyError:
+                    pass
 
     try:
         home_averages = [
-            round(sum([float(m[key + "_home"]) for m in prev_5_matches_home]) / len(prev_5_matches_home), 2) for key in
-            avg_keys_raw]
+            round(sum([float(m.get(key + "_home", 0)) for m in prev_5_matches_home if key + "_home" in m]) / len(
+                prev_5_matches_home), 2)
+            for key in avg_keys_raw
+        ]
+
         away_averages = [
-            round(sum([float(m[key + "_away"]) for m in prev_5_matches_away]) / len(prev_5_matches_away), 2) for key in
-            avg_keys_raw]
+            round(sum([float(m.get(key + "_away", 0)) for m in prev_5_matches_away if key + "_away" in m]) / len(
+                prev_5_matches_away), 2)
+            for key in avg_keys_raw
+        ]
     except Exception as e:
         logging.error(f"Error: {e}")
+        print(f"Skipping match {match_id} due to calculating previous match averages")
         return None
 
     line = home_averages + away_averages + [full_match_stats[key] for key in other_keys]
@@ -159,22 +178,36 @@ async def main():
         tasks_previous_matches_by_team = [get_previous_matches_by_team(session, team_id, UNTIL_DATE) for team_id in team_ids]
         previous_matches_by_teams = await asyncio.gather(*tasks_previous_matches_by_team)
 
-        data_averages_all = {ti: await asyncio.gather(*(calculate_averages(session, pms['match_id']) for pms in pmbt)) for pmbt, ti in zip(previous_matches_by_teams, team_ids)}
+        data_averages_all = {ti: await asyncio.gather(*(calculate_averages(session, pms['match_id'], False) for pms in pmbt)) for pmbt, ti in zip(previous_matches_by_teams, team_ids)}
 
         # filter out the None values
         data_averages_all = {k: [i for i in v if i] for k, v in data_averages_all.items()}
+        data_averages_all = {k: v for k, v in data_averages_all.items() if v}
 
         for future_match in future_match_stats:
             # calculate the averages
-            future_match_averages = await calculate_averages(session, future_match['match_id'])
+            future_match_averages = await calculate_averages(session, future_match['match_id'], True)
+
+            if not future_match_averages:
+                print(f"Skipping match {future_match['match_id']} due to insufficient data")
+                continue # TODO: handle this case, BUG: future_match_averages is sometimes None
 
             # home and away team ids
             home_team_id = future_match['team_id_home']
             away_team_id = future_match['team_id_away']
 
             # get the averages of the home and away teams
-            home_team_averages = data_averages_all[home_team_id]
-            away_team_averages = data_averages_all[away_team_id]
+            try:
+                home_team_averages = data_averages_all[home_team_id]
+            except KeyError:
+                print(f"Skipping match {future_match['match_id']} due to missing home key {home_team_id}")
+                continue
+
+            try:
+                away_team_averages = data_averages_all[away_team_id]
+            except KeyError:
+                print(f"Skipping match {future_match['match_id']} due to missing away key {away_team_id}")
+                continue
 
             main_data = home_team_averages + away_team_averages + [future_match_averages,]
 
@@ -195,9 +228,9 @@ async def main():
             y = df_main['is_match_under_25']  # Define the target column
             match_ids = df_main['match_id']  # Save match IDs for future use
 
-            # Split data into training and test sets (95% for training)
+            # Split data into training and test sets (90% for training)
             # test size should be max 100 matches based on percentage and ratio
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.05, shuffle=False, random_state=None)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False, random_state=None)
 
             # Standardize the data
             scaler = StandardScaler()
@@ -239,14 +272,20 @@ async def main():
                 max_capital = capital
                 n = 0
 
-                # Iterate through the test set predictions and actual values
-                for n, others in enumerate(zip(match_ids[X_test.index], y_test, y_pred, bookmaker_under_odds,
-                                               bookmaker_over_odds)):
+                # Predict probabilities to get the confidence
+                y_pred_proba = model.predict_proba(X_test_selected)
 
-                    match_id, y_t, y_p, uo, oo = others
+                # Iterate through the test set predictions and actual values
+                for n, others in enumerate(zip(match_ids[X_test.index], y_test, y_pred, y_pred_proba,
+                                               bookmaker_under_odds, bookmaker_over_odds)):
+
+                    match_id, y_t, y_p, y_p_proba, uo, oo = others
 
                     if n % reset_bet_every_n_match == 0:
                         bet_per_match = (capital * bet_percentage) // reset_bet_every_n_match
+
+                    # Get confidence for the prediction
+                    confidence = y_p_proba.max()
 
                     if y_p == 0 and y_t == 0:
                         capital += bet_per_match * uo
@@ -257,7 +296,8 @@ async def main():
 
                     max_capital = capital if capital > max_capital else max_capital
 
-                    print(f"Match ID: {match_id}, Actual: {y_t}, Predicted: {y_p}, Under Odds: {uo}, Over Odds: {oo}")
+                    print(f"Match ID: {match_id}, Actual: {y_t}, Predicted: {y_p}, "
+                          f"Confidence: {confidence:.2f}, Under Odds: {uo}, Over Odds: {oo}")
                     print(f'Current Capital: ${capital:.2f}')
 
                 print(f'Final Capital after simulation with model {model_name} in {n} matches: ${capital:.2f}')
