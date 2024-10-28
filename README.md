@@ -33,6 +33,11 @@ Clone the repository to your local machine.
 ```bash
 git clone https://github.com/121me/superlig-match-predictor.git
 ```
+
+To copy with you personal access token, use
+```bash
+git clone https://<YOUR_TOKEN>@github.com/121me/superlig-match-predictor.git
+```
 Install Python 3.11 or higher. This part is up to you, I recommend using [Miniconda](https://docs.conda.io/en/latest/miniconda.html) to create a virtual environment.
 ```bash
 conda create -n superlig-match-predictor python=3.11
