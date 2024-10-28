@@ -126,6 +126,11 @@ class MackolikDatabase:
         self.cur.execute(stmt, (match_id,))
         self.con.commit()
 
+    def get_match_response_code(self, match_id):
+        stmt = "SELECT response_code FROM matches WHERE match_id = ?"
+        self.cur.execute(stmt, (match_id,))
+        return self.cur.fetchone()['response_code']
+
     def fix_db(self):
         stmt = "DELETE FROM matches WHERE response_code = 4 OR response_code = 3"
         self.cur.execute(stmt)
@@ -151,7 +156,7 @@ mackolik_db = MackolikDatabase()
 # Usage example with asyncio
 async def main():
     async with aiohttp.ClientSession() as session:
-        return None
+        print(mackolik_db.get_match_response_code(4182728))
 
 if __name__ == "__main__":
     asyncio.run(main())

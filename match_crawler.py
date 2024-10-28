@@ -82,7 +82,7 @@ def extract_bets(bet_details, bet_type):
     return [1, 1]
 
 
-async def get_match_stats(session, match_id: str) -> dict[str, str]:
+async def get_match_stats(session, match_id: str|int) -> dict[str, str]:
     """Extracts all match stats from the Mackolik website for a given match ID."""
     print(f"Getting match {match_id}")
 
@@ -194,6 +194,8 @@ async def get_match_stats(session, match_id: str) -> dict[str, str]:
         away_team_name = match_details["away"]
     except Exception as e:
         print(f"Error fetching team names for match {match_id}: {e}")
+        home_team_name = "Unknown"
+        away_team_name = "Unknown"
         pass
 
     is_future = (current_datetime <
@@ -339,7 +341,7 @@ async def get_match_stats(session, match_id: str) -> dict[str, str]:
 
 
 async def main() -> None:
-    example_match_id = '4109542'
+    example_match_id = '4182766'
     async with aiohttp.ClientSession() as session:
 
         match_stats_v2 = await get_match_stats(session, example_match_id)

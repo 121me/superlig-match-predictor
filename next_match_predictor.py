@@ -48,25 +48,36 @@ keys_to_swap_raw = ["team_id", "team_name", "ht_match_score", "ft_match_score", 
 other_keys = ["match_id", "bet_under_25", "bet_over_25",]
 
 SEASON_IDS = [
-    #'67180', # Premier League
-    #'67285', # Bundesliga
-    #'67194', # La Liga
-    #'67286', # Serie A
-    #'67238', # Ligue 1
-    #'67106', # Pro League
-    #'67206', # Super League
-    #'67345', # Primeira Liga
-    #'67204', # Eredivisie
-    #'67287', # Super Lig
-    '67892', # UEFA Championship League
-    #'67909', # UEFA Europa League
-    #'67940', # UEFA Conference League
+    #67180, # Premier League
+    #67285, # Bundesliga
+    #67194, # La Liga
+    #67286, # Serie A
+    #67238, # Ligue 1
+    67287, # Super Lig
+    #67892, # UEFA Championship League
+    #67909, # UEFA Europa League
+    #67940, # UEFA Conference League
 ]
 
-UNTIL_DATE = '24.07.2023'
+until_dates = [
+    '1.02.2022',
+    '1.02.2023',
+    '1.02.2023',
+]
+
+test_sizes = [
+    0.05,
+    0.1,
+    0.03,
+]
+
+my_index = 0
+
+UNTIL_DATE = until_dates[my_index]
+TEST_SIZE = test_sizes[my_index]
 
 
-async def get_next_match_ids_by_league(session: aiohttp.ClientSession, season_id: str) -> Generator[
+async def get_next_match_ids_by_league(session: aiohttp.ClientSession, season_id: str|int) -> Generator[
                                                                                               Any, Any, None] | None:
     """
     Predicts the very next matches for a given league season.
@@ -158,13 +169,21 @@ async def calculate_averages(session: aiohttp.ClientSession, match_id: str, is_f
     line += [0] if int(full_match_stats["ft_match_score_home"]) + int(
         full_match_stats["ft_match_score_away"]) < 2.5 else [1]
 
+    # Also add the date of the match to compare with other matches
+    line += [full_match_stats["match_year"], full_match_stats["match_month"], full_match_stats["match_day"], full_match_stats["match_hour"], full_match_stats["match_minute"]]
+
     return line
 
 
 async def main():
     async with aiohttp.ClientSession() as session:
+
+        # You can comment out the following two lines if you want to use next_match_ids_by_league
         tasks_next_match_ids_by_league = [get_next_match_ids_by_league(session, season_id) for season_id in SEASON_IDS]
         next_match_ids_by_league = await asyncio.gather(*tasks_next_match_ids_by_league)
+
+        # You can use the following line if you want to use next_match_ids_by_league
+        # next_match_ids_by_league = [[4111136, 4124944, 4124948]]
 
         tasks_match_stats = [get_match_stats(session, match_id) for next_match_ids_of_the_league in next_match_ids_by_league for match_id in next_match_ids_of_the_league]
         future_match_stats = await asyncio.gather(*tasks_match_stats)
@@ -209,7 +228,18 @@ async def main():
                 print(f"Skipping match {future_match['match_id']} due to missing away key {away_team_id}")
                 continue
 
-            main_data = home_team_averages + away_team_averages + [future_match_averages,]
+            main_data = home_team_averages + away_team_averages
+
+            # sort the data by date
+            # each element in the list has match_year, match_month, match_day, match_hour, match_minute
+            # newest date is the last element
+            main_data.sort(key=lambda x: (x[-5], x[-4], x[-3], x[-2], x[-1]))
+
+            # add the future match averages
+            main_data.append(future_match_averages)
+
+            # remove just the date part in the main_data
+            main_data = [i[:-5] for i in main_data]
 
             # Convert the collected data into a DataFrame
             df_main = pd.DataFrame(main_data, columns=headers)
@@ -230,7 +260,7 @@ async def main():
 
             # Split data into training and test sets (90% for training)
             # test size should be max 100 matches based on percentage and ratio
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False, random_state=None)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=False, random_state=None)
 
             # Standardize the data
             scaler = StandardScaler()
@@ -286,6 +316,7 @@ async def main():
 
                     # Get confidence for the prediction
                     confidence = y_p_proba.max()
+                    confidence = (confidence-0.5)*2
 
                     if y_p == 0 and y_t == 0:
                         capital += bet_per_match * uo
