@@ -51,23 +51,23 @@ SEASON_IDS = [
     #67180, # Premier League
     #67285, # Bundesliga
     #67194, # La Liga
-    #67286, # Serie A
+    67286, # Serie A
     #67238, # Ligue 1
-    67287, # Super Lig
+    #67287, # Super Lig
     #67892, # UEFA Championship League
     #67909, # UEFA Europa League
     #67940, # UEFA Conference League
 ]
 
 until_dates = [
-    '1.02.2022',
+    '1.02.2024',
     '1.02.2023',
     '1.02.2023',
 ]
 
 test_sizes = [
     0.05,
-    0.1,
+    0.10,
     0.03,
 ]
 
@@ -127,7 +127,7 @@ async def calculate_averages(session: aiohttp.ClientSession, match_id: str, is_f
     prev_5_matches_away = [m for m in prev_5_matches_away if int(m['response_code']) in ([1, 3] if is_future else [1,])]
 
     # If there are 2 or fewer matches, skip this match
-    if len(prev_5_matches_home) <= 1 or len(prev_5_matches_away) <= 1:
+    if len(prev_5_matches_home) <= 2 or len(prev_5_matches_away) <= 2:
         print(f"Skipping match {match_id} due to insufficient previous matches")
         return None
 
@@ -183,7 +183,7 @@ async def main():
         next_match_ids_by_league = await asyncio.gather(*tasks_next_match_ids_by_league)
 
         # You can use the following line if you want to use next_match_ids_by_league
-        # next_match_ids_by_league = [[4111136, 4124944, 4124948]]
+        # next_match_ids_by_league = [[4122645, 4122650, 4122651]]
 
         tasks_match_stats = [get_match_stats(session, match_id) for next_match_ids_of_the_league in next_match_ids_by_league for match_id in next_match_ids_of_the_league]
         future_match_stats = await asyncio.gather(*tasks_match_stats)
@@ -200,6 +200,7 @@ async def main():
         data_averages_all = {ti: await asyncio.gather(*(calculate_averages(session, pms['match_id'], False) for pms in pmbt)) for pmbt, ti in zip(previous_matches_by_teams, team_ids)}
 
         # filter out the None values
+        # KEY: team_id, VALUE: list of averages
         data_averages_all = {k: [i for i in v if i] for k, v in data_averages_all.items()}
         data_averages_all = {k: v for k, v in data_averages_all.items() if v}
 
@@ -267,12 +268,10 @@ async def main():
             X_train_scaled = scaler.fit_transform(X_train)
             X_test_scaled = scaler.transform(X_test)
 
-            '''
             # Feature Selection using ANOVA F-test
-            selector = SelectKBest(f_classif, k=5)
-            X_train_selected = selector.fit_transform(X_train_scaled, y_train)
-            X_test_selected = selector.transform(X_test_scaled)
-            '''
+            # selector = SelectKBest(f_classif, k=8)
+            # X_train_selected = selector.fit_transform(X_train_scaled, y_train)
+            # X_test_selected = selector.transform(X_test_scaled)
 
             X_train_selected = X_train_scaled
             X_test_selected = X_test_scaled

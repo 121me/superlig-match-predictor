@@ -62,7 +62,7 @@ def extract_match_stats(lines: list, home_team_name: str, away_team_name: str, h
     return stats
 
 
-def format_match_date(soup: BeautifulSoup) -> list[str]:
+def format_match_date(soup: BeautifulSoup) -> list[int]:
     """Extract and format the match date."""
     try:
         match_date, match_time = soup.select_one(".match-info-date").text.split(" : ")[1].split(" ")
@@ -71,7 +71,7 @@ def format_match_date(soup: BeautifulSoup) -> list[str]:
     except AttributeError:
         match_date = ["1", "1", "1900"]
         match_time = ["23", "59"]
-    return match_date + match_time
+    return list(map(int, (match_date + match_time)))
 
 
 def extract_bets(bet_details, bet_type):
@@ -212,7 +212,7 @@ async def get_match_stats(session, match_id: str|int) -> dict[str, str]:
     team_id_home = int(soup.find("a", {"class": "left-block-team-name"})["href"].split("/")[-2])
     team_id_away = int(soup.find("a", {"class": "r-left-block-team-name"})["href"].split("/")[-2])
 
-    season_id = int(soup.find("div", {"class": "match-info-wrapper-season"}).find("a")["href"].split("=")[-1].split("/")[0])
+    # season_id = int(soup.find("div", {"class": "match-info-wrapper-season"}).find("a")["href"].split("=")[-1].split("/")[0])
 
     prev_5_match_ids_home = [e['onclick'].split("(")[1].split(")")[0] for e in soup.find("div", {"class": "last-games-temp"}).find_all("div", {"class": "last-games"})]
     prev_5_match_ids_away = [e['onclick'].split("(")[1].split(")")[0] for e in soup.find("div", {"class": "r-last-games-temp"}).find_all("div", {"class": "last-games"})]

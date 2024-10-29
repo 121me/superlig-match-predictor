@@ -111,7 +111,7 @@ class MackolikDatabase:
         self.con.commit()
 
     def check_match(self, match_id):
-        # if response_code is not 0, then the match is fetched
+        # if response_code is not 2, then the match is fetched
         stmt = "SELECT EXISTS(SELECT 1 FROM matches WHERE match_id = ? and response_code != 2)"
         self.cur.execute(stmt, (match_id,))
         return tuple(self.cur.fetchone().items())[0][1] == 1
